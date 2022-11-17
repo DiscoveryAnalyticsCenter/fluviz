@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <title>Flu Forecast Visualizer</title>
+    <meta name="description" content="Flu Forecast Visualizer" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="https://cdn.polyfill.io/v2/polyfill.min.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+      .axis {
+        font-size: smaller;
+      }
+
+      .gtruth, .dataline{
+          fill: none;
+          stroke: black;
+          stroke-width: 2px;
+      }
+
+      .tooltip {
+          background-color: white;
+          background-opacity: .5;
+      }
+    </style>
+  </head>
+  <body>
+      <h1>Flu Viz</h1>
+
+    <div id="graphable">
+    </div>
+    <div>
+        <label>Location: <select id="locations"></select></label>
+        Prediction Week: <input type="button" id="lastwk" value="&lt;" />
+        <input type="button" id="nextwk" value="&gt;" />
+    </div>
+
+    <script>
+        var start_time = new Date(2022, 9, 0);
+        //part of this was cribbed from:
+        //https://bl.ocks.org/d3noob/15e4f2a49d0d25468e76ab6717cd95e7
+        // set the dimensions and margins of the graph
+        var margin = {top: 20, right: 20, bottom: 30, left: 50},
+            width = 960 - margin.left - margin.right,
+            height = 500 - margin.top - margin.bottom;
+
+        var svg = d3.select("#graphable").append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+        var tt_div = d3.select("#graphable").append("div")
+        var ul = d3.select("body").append("ul")
+
+        // Global variable for all data
+        let gt_data;
+        let fc_data;
+        let cur_loc = "US";
+        let weeks;
+        let cur_wk = -1;
+
+        // Axis setup
+        // parse the date / time
+        var parseTime = d3.timeParse("%Y-%m-%d");
+        var formatTime = d3.timeFormat("%Y-%m-%d");
+
+        // set the ranges
+        var x = d3.scaleTime().range([0, width]);
+        var y = d3.scaleLinear().range([height, 0]);
+
+        var loc_sel = d3.select("#locations")
+                        .on("change", function () {
+                            cur_loc = d3.select(this).property("value");
+                            update_location();
+                        });
+        d3.select("#weeks")
+            .on("change", function () {
+                cur_wks = +d3.select(this).property("value");
+                update_location();
+            });
+        d3.select("#lastwk")
+            .on("click", function () {
+                cur_wk -= 1
+                cur_wk = d3.max([0, cur_wk]);
+                update_location();
+            });
+        d3.select("#nextwk")
+            .on("click", function () {
+                cur_wk += 1
+                cur_wk = d3.min([cur_wk, weeks.length - 1]);
+                update_location();
+            });
+
+        d3.select("#weeks").selectAll("option")
+            .data([1, 2, 3, 4])
+            .enter()
+                .append("option")
+                    .attr("value", (d) => d)
+                    .text((d) => d);
+
+
+        d3.csv("locations.csv").then((locs) => {
+            loc_sel.selectAll("option")
+                .data(locs)
+                .enter()
+                    .append("option")
+                        .attr("value", (d) => d.location)
+                        .text((d) => d.location_name);
+
+        })
+        var valueline = d3.line()
+            .x(function(d) { return x(d.date); })
+            .y(function(d) { return y(d.value); });
+
+        /////////////////////////
+
+        d3.json("data/truth.json").then((gt_json) => {
+            gt_json.forEach(function(d) {
+                d.date = parseTime(d.date);
+            });
+
+            gt_json = gt_json.filter(function (d) {
+                return d.date >= start_time;
+            });
+
+            //Date behaves jankily so we sort and compare on getTime()
+            weeks = Array.from(
+                new Map(gt_json.map((d) => [d.date.getTime(), d.date])).entries());
+            weeks = weeks.sort().map((d) =>d[1]);
+            console.log(weeks);
+            cur_wk = weeks.length - 1
+            gt_data = gt_json;
+            update_location();
+        });
+
+        let test;
+        function update_location() {
+            d3.json("data/" + cur_loc + ".json").then((fc_json) => {
+                fc_json.forEach(function(d) {
+                    d.date = parseTime(d.date);
+                    d.forecast_date = parseTime(d.forecast_date);
+                });
+                var first_wk_fcs = fc_json.filter((d) => d.wks == 1)
+                var fcdate_map = new Map(first_wk_fcs.map((d) => {
+                    //console.log(d.date);
+                    return [d.date.getTime(), d.forecast_date.getTime()];
+                    //return [d.forecast_date.getTime(), d.date.getTime()];
+                }))
+                test = fcdate_map;
+                console.log(Array.from(fcdate_map.entries()).map((d) =>
+                    {
+                        return [d[0], new Date(d[1])];
+                    }));
+                var cur_tstamp = fcdate_map.get(weeks[cur_wk].getTime());
+                fc_json = fc_json.filter(function (d) {
+                    return d.forecast_date.getTime() == cur_tstamp;
+                });
+
+                fc_data = Array.from(
+                    d3.group(fc_json, d => d.model),
+                    ([key, value]) => ({key, value})
+                );
+                update_viz();
+            });
+        }
+
+        var color = d3.scaleOrdinal(d3.schemeCategory10);
+
+        // This allows to find the closest X index of the mouse:
+        var bisectx = d3.bisector(function(d) { return d.date; }).center;
+        var bisectx2 = d3.bisector(function(d) { return d.date; }).right;
+        var bisecty = d3.bisector(function(d) { return d.value; }).center;
+
+        // Create the circle that travels along the curve of chart
+        var focus = svg
+            .append('g')
+            .append('circle')
+            .style("fill", "none")
+            .attr("stroke", "black")
+            .attr('r', 8.5)
+            .style("opacity", 0)
+
+        // Create the text that travels along the curve of chart
+        var focusText = tt_div
+           .attr("class", "tooltip")
+           .style("opacity", 0)
+
+        // Create a rect on top of the svg area: this rectangle recovers mouse position
+        svg
+            .append('rect')
+            .style("fill", "none")
+            .style("pointer-events", "all")
+            .attr("class", "pointerrect")
+            .attr('width', width)
+            .attr('height', height)
+            .on('mouseover', mouseover)
+            .on('mousemove', mousemove)
+            .on('mouseout', mouseout);
+
+
+        // What happens when the mouse move -> show the annotations at the right positions.
+        function mouseover() {
+            focus.style("opacity", 1)
+            focusText.style("opacity",1)
+        }
+
+        function mousemove() {
+            gt_loc_data = gt_data.filter(function (d) { return d.location == cur_loc; })
+            // recover coordinate we need
+            var x0 = x.invert(d3.pointer(event, this)[0]);
+            var y0 = y.invert(d3.pointer(event, this)[1]);
+            var gt_ix = bisectx(gt_loc_data, x0, 0);
+            var gt_ix2 = bisectx2(gt_loc_data, x0, 0);
+
+            var closest_fcs = [];
+            var ydatas = fc_data.forEach(function(d) {
+                var fc = d.value;
+                if (fc.length > 0) {
+                    var ix = bisectx(fc, x0, 0);
+                    closest_fcs = closest_fcs.concat(fc[ix])
+                }
+            });
+            closest_fcs.sort((a,b) => d3.ascending(a.value, b.value));
+            var iy = bisecty(closest_fcs, y0, 0);
+            var closest_model = closest_fcs[iy].model;
+            var selectedData = closest_fcs[iy];
+            focus
+                .attr("cx", x(selectedData.date))
+                .attr("cy", y(selectedData.value))
+
+            var tval;
+            if (gt_ix2 == gt_loc_data.length) {
+                tval = "";
+            } else {
+                tval = "<br/>truth:" + gt_loc_data[gt_ix].value
+            }
+
+
+            focusText
+                .style("position", "absolute")
+                //.style("left", (d3.pointer(event)[0] + 70) + "px")
+                //.style("top", d3.pointer(event)[1] + "px")
+                .style("left", "70px")
+                .style("top", "70px")
+                .html(
+                    selectedData.model
+                    + "<br/>" +
+                    formatTime(selectedData.date)
+                    + "<br/>pred: " + d3.format(".2f")(selectedData.value)
+                    + tval
+                )
+        }
+        function mouseout() {
+            focus.style("opacity", 0)
+            focusText.style("opacity", 0)
+        }
+
+        function update_viz() {
+            gt_loc_data = gt_data.filter(function (d) { return d.location == cur_loc; })
+
+            var gt_x_extents = d3.extent(gt_loc_data, function(d) { return d.date; });
+            var fc_x_extents = fc_data.map(function(d) {
+                return d3.extent(d.value, function(dd) { return dd.date; });
+            });
+            var fc_x_min = d3.min(fc_x_extents, function(d) { return d[0]; });
+            var fc_x_max = d3.max(fc_x_extents, function(d) { return d[1]; });
+            // Scale the range of the data
+            x.domain([d3.min([gt_x_extents[0], fc_x_min]),
+                      d3.max([gt_x_extents[1], fc_x_max])]);
+
+            var fc_y_max = d3.max(fc_data.map(function(d) {
+                return d3.max(d.value, function(dd) { return dd.value; });
+            }))
+            var gt_y_max = d3.max(gt_loc_data, function(d) { return d.value; });
+
+            y.domain([0, d3.max([fc_y_max, gt_y_max])]);
+
+            svg.selectAll(".els").remove();
+            svg.selectAll(".axis").remove();
+            svg.selectAll(".gtruth").remove();
+
+            var svg_el = svg.insert("g", ".pointerrect")
+                            .attr("class", "els");
+            // Add the valueline path.
+            svg_el.append("path")
+                .data([gt_loc_data])
+                .attr("class", "gtruth")
+                .attr("d", valueline);
+
+            fc_data.forEach(function(d,i) {
+                svg_el.append("path")
+                    .attr("class", "dataline")
+                    .style("stroke", function() { // Add the colours dynamically
+                        return d.color = color(d.key);
+                    })
+                    .attr("d", function() {
+                        return valueline(d.value);  //.map((e) => e.value));
+                    });
+
+                var c = svg_el.selectAll("." + d.key)
+                    .data(d.value)
+                    .enter()
+                        .append('circle')
+                        .attr("class", "points " + d.key)
+                        .attr('r', 3)
+                        .style("fill", function() { // Add the colours dynamically
+                            return d.color = color(d.key);
+                        })
+                        .attr("cx", function(dd) { return x(dd.date); })
+                        .attr("cy", function(dd) { return y(dd.value); })
+                    .exit()
+                        .remove();
+
+                ul.append("li")
+                    .attr("class", "legend")    // style the legend
+                    .style("color", function() { // Add the colours dynamically
+                        return d.color = color(d.key); })
+                    .text(d.key);
+            });
+
+            // Add the x Axis
+            svg.append("g")
+                .attr("class", "axis")
+                .attr("transform", "translate(0," + height + ")")
+                .call(d3.axisBottom(x));
+
+            // Add the y Axis
+            svg.append("g")
+                .attr("class", "axis")
+                .call(d3.axisLeft(y));
+      }
+    </script>
+  </body>
+</html>

@@ -97,7 +97,7 @@ def process_data(input_dir: Path, output_dir: Path):
         model_dir = fcast_dir / model
         datas = process_model_dir(model_dir)
         all_datas = pd.concat([all_datas, datas], axis=0)
-    all_datas = all_datas.set_index(["location", "forecast_date"], drop=True)
+    all_datas = all_datas.set_index(["location", "forecast_date", "wks"], drop=True)
     all_datas = all_datas.sort_index()
 
     gt_df = process_truth(input_dir)
