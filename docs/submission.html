@@ -73,24 +73,24 @@
         var loc_sel = d3.select("#locations")
                         .on("change", function () {
                             cur_loc = d3.select(this).property("value");
-                            update_location();
+                            update_location(true);
                         });
         d3.select("#weeks")
             .on("change", function () {
                 cur_wks = +d3.select(this).property("value");
-                update_location();
+                update_location(true);
             });
         d3.select("#lastwk")
             .on("click", function () {
                 cur_wk -= 1
                 cur_wk = d3.max([0, cur_wk]);
-                update_location();
+                update_location(false);
             });
         d3.select("#nextwk")
             .on("click", function () {
                 cur_wk += 1
                 cur_wk = d3.min([cur_wk, weeks.length - 1]);
-                update_location();
+                update_location(false);
             });
 
         d3.select("#weeks").selectAll("option")
@@ -113,6 +113,11 @@
         var valueline = d3.line()
             .x(function(d) { return x(d.date); })
             .y(function(d) { return y(d.value); });
+    
+        var areapath = d3.area()
+            .x(function(d) { return x(d.date) })
+            .y0(function(d) { return y(d.ci025) })
+            .y1(function(d) { return y(d.ci975) })
 
         /////////////////////////
 
@@ -126,17 +131,17 @@
             });
 
             //Date behaves jankily so we sort and compare on getTime()
-            weeks = Array.from(
-                new Map(gt_json.map((d) => [d.date.getTime(), d.date])).entries());
-            weeks = weeks.sort().map((d) =>d[1]);
-            console.log(weeks);
-            cur_wk = weeks.length - 1
+            // weeks = Array.from(
+            //     new Map(gt_json.map((d) => [d.date.getTime(), d.date])).entries());
+            // weeks = weeks.sort().map((d) =>d[1]);
+            // //console.log(weeks);
+            // cur_wk = weeks.length - 1;
             gt_data = gt_json;
-            update_location();
+            update_location(true);
         });
 
         let test;
-        function update_location() {
+        function update_location(update_weeks) {
             d3.json("data/" + cur_loc + ".json").then((fc_json) => {
                 fc_json.forEach(function(d) {
                     d.date = parseTime(d.date);
@@ -148,11 +153,20 @@
                     return [d.date.getTime(), d.forecast_date.getTime()];
                     //return [d.forecast_date.getTime(), d.date.getTime()];
                 }))
+
+                if (update_weeks) {
+                    var weeks_t = Array.from(
+                        new Map(first_wk_fcs.map((d) => [d.date.getTime(), d.date])).entries());
+                    weeks_t = weeks_t.sort().map((d) => d[1]);
+                    weeks = weeks_t;
+                    cur_wk = weeks_t.length - 1;
+                }
+
                 test = fcdate_map;
-                console.log(Array.from(fcdate_map.entries()).map((d) =>
-                    {
-                        return [d[0], new Date(d[1])];
-                    }));
+                // console.log(Array.from(fcdate_map.entries()).map((d) =>
+                //     {
+                //         return [d[0], new Date(d[1])];
+                //     }));
                 var cur_tstamp = fcdate_map.get(weeks[cur_wk].getTime());
                 fc_json = fc_json.filter(function (d) {
                     return d.forecast_date.getTime() == cur_tstamp;
@@ -264,6 +278,7 @@
             var fc_x_extents = fc_data.map(function(d) {
                 return d3.extent(d.value, function(dd) { return dd.date; });
             });
+
             var fc_x_min = d3.min(fc_x_extents, function(d) { return d[0]; });
             var fc_x_max = d3.max(fc_x_extents, function(d) { return d[1]; });
             // Scale the range of the data
@@ -273,9 +288,12 @@
             var fc_y_max = d3.max(fc_data.map(function(d) {
                 return d3.max(d.value, function(dd) { return dd.value; });
             }))
+            var fc_y_max_ci = d3.max(fc_data.map(function(d) {
+                return d3.max(d.value, function(dd) { return dd.ci975; });
+            }))
             var gt_y_max = d3.max(gt_loc_data, function(d) { return d.value; });
 
-            y.domain([0, d3.max([fc_y_max, gt_y_max])]);
+            y.domain([0, d3.max([fc_y_max, gt_y_max, fc_y_max_ci])]);
 
             svg.selectAll(".els").remove();
             svg.selectAll(".axis").remove();
@@ -297,6 +315,19 @@
                     })
                     .attr("d", function() {
                         return valueline(d.value);  //.map((e) => e.value));
+                    });
+                svg_el.append("path")
+                    .attr("class", "dataline")
+                    .style("stroke", function() { // Add the colours dynamically
+                        return d.color = color(d.key);
+                    })
+                    .style("stroke-opacity", "0%")
+                    .style("fill-opacity", "5%")
+                    .style("fill", function() { // Add the colours dynamically
+                        return d.color = color(d.key);
+                    })
+                    .attr("d", function() {
+                        return areapath(d.value);  //.map((e) => e.value));
                     });
 
                 var c = svg_el.selectAll("." + d.key)
