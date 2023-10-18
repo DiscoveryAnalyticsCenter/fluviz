@@ -37,7 +37,7 @@
     </div>
 
     <script>
-        var start_time = new Date(2022, 9, 0);
+        var start_time = new Date(2023, 9, 0);
         //part of this was cribbed from:
         //https://bl.ocks.org/d3noob/15e4f2a49d0d25468e76ab6717cd95e7
         // set the dimensions and margins of the graph
@@ -86,6 +86,7 @@
                 cur_wk = d3.max([0, cur_wk]);
                 update_location(false);
             });
+
         d3.select("#nextwk")
             .on("click", function () {
                 cur_wk += 1
@@ -93,13 +94,13 @@
                 update_location(false);
             });
 
-        d3.select("#weeks").selectAll("option")
+        /*d3.select("#weeks").selectAll("option")
             .data([1, 2, 3, 4])
             .enter()
                 .append("option")
                     .attr("value", (d) => d)
                     .text((d) => d);
-
+        */
 
         d3.csv("locations.csv").then((locs) => {
             loc_sel.selectAll("option")
@@ -294,6 +295,7 @@
             var gt_y_max = d3.max(gt_loc_data, function(d) { return d.value; });
 
             y.domain([0, d3.max([fc_y_max, gt_y_max, fc_y_max_ci])]);
+            y.domain([0, 200]);  //d3.max([fc_y_max, gt_y_max, fc_y_max_ci])]);
 
             svg.selectAll(".els").remove();
             svg.selectAll(".axis").remove();
