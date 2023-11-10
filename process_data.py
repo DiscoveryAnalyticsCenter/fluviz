@@ -42,24 +42,18 @@ def get_model_results(df, model_name):
     df = df.set_index("location").sort_index()
     for sid in sids:
         df_pred = df.loc[sid]
-        dates = df_pred[df_pred.output_type == "point"].target_end_date
-        forecast_dates = df_pred[df_pred.output_type == "point"].reference_date
-        preds = df_pred[df_pred.output_type == "point"].value
-        targets = df_pred[df_pred.output_type == "point"].horizon
+        quants = df_pred[df_pred.output_type == "quantile"]
+        quants = quants.sort_values("horizon")  # "target_end_date")
+        heads = quants[quants["output_type_id"] == 0.5]
+        dates = heads.target_end_date
+        forecast_dates = heads.reference_date
+        targets = heads.horizon
+        preds = heads.value
 
-        if len(dates) == 0:
-            mask = (df_pred.output_type == "quantile") & (df_pred["output_type_id"] == .025)
-            dates = df_pred[mask].target_end_date
-            forecast_dates = df_pred[mask].reference_date
-            targets = df_pred[mask].horizon
-
-        if len(preds) == 0:
-            preds = df_pred[(df_pred.output_type == "quantile") & (df_pred["output_type_id"] == .5)].value
-
-        ci025 = df_pred[(df_pred.output_type == "quantile") & (df_pred["output_type_id"] == .025)].value
-        ci975 = df_pred[(df_pred.output_type == "quantile") & (df_pred["output_type_id"] == .975)].value
-        ci05 = df_pred[(df_pred.output_type == "quantile") & (df_pred["output_type_id"] == .05)].value
-        ci95 = df_pred[(df_pred.output_type == "quantile") & (df_pred["output_type_id"] == .95)].value
+        ci025 = quants[(quants["output_type_id"] == .025)].value
+        ci975 = quants[(quants["output_type_id"] == .975)].value
+        ci05 =  quants[(quants["output_type_id"] == .05)].value
+        ci95 =  quants[(quants["output_type_id"] == .95)].value
 
         if len(dates) == 0:
             continue
